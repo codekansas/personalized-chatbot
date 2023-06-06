@@ -1,0 +1,26 @@
+model:
+  name: resnet18
+  num_classes: 10
+
+task:
+  name: image_demo
+  max_steps: 100_000
+  train_dl:
+    batch_size: 16
+
+optimizer:
+  name: adamw
+
+lr_scheduler:
+  name: linear
+
+trainer:
+  name: sl
+  batches_per_step: 4
+
+logger:
+  - name: stdout
+  - name: tensorboard
+
+launcher:
+  name: mp
