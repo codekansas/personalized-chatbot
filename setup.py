@@ -24,7 +24,7 @@ version: str = version_re.group(1)
 
 
 setup(
-    name="chatbot",
+    name="messenger-chatbot",
     version=version,
     description="Fine-tuning a chatbot on Messenger conversations",
     author="Benjamin Bolte",
