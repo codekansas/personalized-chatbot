@@ -1,9 +1,4 @@
-"""Defines a template mode.
-
-To use this, change the key from ``"template"`` to whatever your project
-is called. Next, just override the ``forward`` model to whatever signature
-your task expects, and you're good to go!
-"""
+"""Defines a PyTorch model for fine-tuning a pre-trained LLM."""
 
 from dataclasses import dataclass
 
