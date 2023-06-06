@@ -75,7 +75,7 @@ max-complexity = 10
 
 [tool.ruff.isort]
 
-known-first-party = ["project", "tests"]
+known-first-party = ["chatbot", "tests"]
 combine-as-imports = true
 
 [tool.ruff.pydocstyle]

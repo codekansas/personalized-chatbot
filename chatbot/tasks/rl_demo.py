@@ -19,8 +19,8 @@ from torch import Tensor
 from torch.distributions.normal import Normal
 from torch.nn import functional as F
 
-from project.models.a2c import A2CModel
-from project.tasks.rl_demo_env import Action, Environment, State
+from chatbot.models.a2c import A2CModel
+from chatbot.tasks.rl_demo_env import Action, Environment, State
 
 
 @dataclass

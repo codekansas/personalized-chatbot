@@ -19,9 +19,6 @@ concurrency:
 
 jobs:
   run-base-tests:
-    strategy:
-        matrix:
-            project_type: [vanilla, cpp]
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
@@ -40,19 +37,10 @@ jobs:
           path: |
             ${{ env.pythonLocation }}
             .mypy_cache/
-          key: python-requirements-${{ matrix.project_type }}-${{ env.pythonLocation }}-${{ github.event.pull_request.base.sha || github.sha }}
+          key: python-requirements-${{ env.pythonLocation }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
-            python-requirements-${{ matrix.project_type }}-${{ env.pythonLocation }}
-            python-requirements-${{ matrix.project_type }}-
-
-      - name: Initialize project
-        run: |
-          ./initialize \
-            --name 'my_project' \
-            --description 'My project description' \
-            --author 'My Name' \
-            --project ${{ matrix.project_type }} \
-            --remove-init 1
+            python-requirements-${{ env.pythonLocation }}
+            python-requirements-
 
       - name: Install package
         run: |
