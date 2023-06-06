@@ -3,20 +3,21 @@
 from dataclasses import dataclass
 
 import ml.api as ml
+from pretrained.rwkv import pretrained_rwkv
 from torch import Tensor
 
 
 @dataclass
-class TemplateModelConfig(ml.BaseModelConfig):
+class ChatbotModelConfig(ml.BaseModelConfig):
     pass
 
 
-@ml.register_model("template", TemplateModelConfig)
-class TemplateModel(ml.BaseModel[TemplateModelConfig]):
-    def __init__(self, config: TemplateModelConfig) -> None:
+@ml.register_model("chatbot", ChatbotModelConfig)
+class ChatbotModel(ml.BaseModel[ChatbotModelConfig]):
+    def __init__(self, config: ChatbotModelConfig) -> None:
         super().__init__(config)
 
-        raise NotImplementedError
+        self.rwkv = pretrained_rwkv("430m")
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, tokens: Tensor) -> Tensor:
         raise NotImplementedError

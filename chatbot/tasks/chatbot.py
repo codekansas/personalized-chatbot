@@ -6,22 +6,24 @@ import ml.api as ml
 from torch import Tensor
 from torch.utils.data.dataset import Dataset
 
+from chatbot.models.llm import ChatbotModel
+
 
 @dataclass
-class TemplateTaskConfig(ml.SupervisedLearningTaskConfig):
+class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
     pass
 
 
 # These types are defined here so that they can be used consistently
 # throughout the task and only changed in one location.
-Model = ml.BaseModel
+Model = ChatbotModel
 Batch = tuple[Tensor, Tensor]
 Output = Tensor
 Loss = Tensor
 
 
-@ml.register_task("template", TemplateTaskConfig)
-class TemplateTask(ml.SupervisedLearningTask[TemplateTaskConfig, Model, Batch, Output, Loss]):
+@ml.register_task("chatbot", ChatbotTaskConfig)
+class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Output, Loss]):
     def run_model(self, model: Model, batch: Batch, state: ml.State) -> Output:
         raise NotImplementedError
 
