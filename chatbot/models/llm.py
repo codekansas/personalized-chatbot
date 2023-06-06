@@ -9,7 +9,8 @@ from torch import Tensor
 
 @dataclass
 class ChatbotModelConfig(ml.BaseModelConfig):
-    pass
+    model_size: str = ml.conf_field("430m", help="The size of the pre-trained model.")
+    lora_rank: int = ml.conf_field(4, help="The rank of the LoRA approximation.")
 
 
 @ml.register_model("chatbot", ChatbotModelConfig)
@@ -17,7 +18,11 @@ class ChatbotModel(ml.BaseModel[ChatbotModelConfig]):
     def __init__(self, config: ChatbotModelConfig) -> None:
         super().__init__(config)
 
-        self.rwkv = pretrained_rwkv("430m")
+        self.rwkv = pretrained_rwkv("430m", lora_rank=config.lora_rank)
+        self.predictor = self.rwkv.predictor()
 
     def forward(self, tokens: Tensor) -> Tensor:
-        raise NotImplementedError
+        return self.rwkv(tokens)
+
+    def infer(self, prompt: str) -> str:
+        return self.predictor.generate(prompt)
