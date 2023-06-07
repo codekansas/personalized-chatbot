@@ -1,6 +1,8 @@
 # requirements.txt
 
+ftfy
 ml-starter
 ml-pretrained
 numpy
+tokenizers
 torch>=2.0.0

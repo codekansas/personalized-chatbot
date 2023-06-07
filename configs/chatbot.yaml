@@ -1,22 +1,21 @@
 model:
-  name: resnet18
-  num_classes: 10
+  name: chatbot
 
 task:
-  name: image_demo
+  name: chatbot
   max_steps: 100_000
   train_dl:
     batch_size: 16
 
 optimizer:
-  name: adamw
+  name: adam
+  lr: 3e-4
 
 lr_scheduler:
   name: linear
 
 trainer:
   name: sl
-  batches_per_step: 4
 
 logger:
   - name: stdout
