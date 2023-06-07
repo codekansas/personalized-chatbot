@@ -83,7 +83,7 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
 
             def sample() -> str:
                 prompt = "Them: How are you feeling?\nMe: "
-                return prompt + "".join(list(model.infer(prompt, end_strs=["\n"])))
+                return prompt + "".join(list(model.infer(prompt)))
 
             self.logger.log_string("sample", sample)
 
