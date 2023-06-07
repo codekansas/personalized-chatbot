@@ -16,7 +16,6 @@ from torch.utils.data.sampler import Sampler
 from chatbot.models.llm import ChatbotModel
 from chatbot.tasks.datasets.chatbot import ChatbotDataset
 
-EOS_TOKEN = "<|endoftext|>"
 PAD_TOKEN = "<|padding|>"
 
 FILE_KEY = "rwkv_tokens"
@@ -26,15 +25,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
-    tsz: int = ml.conf_field(32, help="The maximum number of tokens in a sequence.")
-    supervise_prompt: bool = ml.conf_field(False, help="If set, supervise the prompt tokens as well.")
-    supervise_other: bool = ml.conf_field(False, help="If set, supervise the other speaker's tokens as well.")
+    tsz: int = ml.conf_field(64, help="The maximum number of tokens in a sequence.")
+    supervise_prompt: bool = ml.conf_field(True, help="If set, supervise the prompt tokens as well.")
+    supervise_other: bool = ml.conf_field(True, help="If set, supervise the other speaker's tokens as well.")
 
 
 # These types are defined here so that they can be used consistently
 # throughout the task and only changed in one location.
 Model = ChatbotModel
-Batch = tuple[Tensor, Tensor]
+Batch = Tensor
 Output = Tensor
 Loss = dict[str, Tensor]
 
@@ -49,42 +48,33 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         self.supervise_other = config.supervise_other
 
         # Gets the token IDs for the special tokens.
-        assert isinstance(eos_token := self.tokenizer.token_to_id(EOS_TOKEN), int)
         assert isinstance(pad_token := self.tokenizer.token_to_id(PAD_TOKEN), int)
-        self._eos_token = eos_token
         self._pad_token = pad_token
 
     def run_model(self, model: Model, batch: Batch, state: ml.State) -> Output:
-        tokens, _ = batch
-        return model(tokens[:, :-1])
+        return model(batch[:, :-1])
 
     def compute_loss(self, model: Model, batch: Batch, state: ml.State, output: Output) -> Loss:
-        tokens, mask = batch
+        preds, targets = output.transpose(1, 2), batch[:, 1:].long()
+
+        # model.tokens_to_string(preds.argmax(dim=1)[0])
+        # model.tokens_to_string(targets[0])
 
         # Token prediction loss.
-        xent_loss = F.cross_entropy(
-            output.transpose(1, 2),
-            tokens[:, 1:].long(),
-            ignore_index=self._pad_token,
-            reduction="none",
-        )
-
-        # Supervise only the desired parts of the sequence.
-        mask = mask[:, 1:]
-        loss_mask = mask == 1
-        if self.supervise_prompt:
-            loss_mask |= mask == 0
-        if self.supervise_other:
-            loss_mask |= mask == 2
-        xent_loss = (xent_loss * loss_mask.to(xent_loss)).sum(dim=1) / mask.sum(dim=1)
+        xent_loss = F.cross_entropy(preds, targets, ignore_index=self._pad_token, reduction="none")
 
         # Logs some samples.
         if state.phase == "valid":
 
-            def sample() -> str:
-                return model.infer("Them: How are you feeling? Me: ")
+            def show_gt() -> str:
+                return model.tokens_to_string(batch[0])
 
-            self.logger.log_string("sample", sample)
+            def sample_pred() -> str:
+                prompt = "Them: Hey, it's been a while.\nThem: How are you doing?\nMe:"
+                return prompt + "".join(list(model.infer(prompt)))
+
+            self.logger.log_string("sample", show_gt)
+            self.logger.log_string("pred", sample_pred)
 
         return {
             "token": xent_loss,
@@ -94,7 +84,6 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         return ChatbotDataset(
             tsz=self.config.tsz,
             tokenizer=lambda text: self.tokenizer.encode(text).ids,
-            eos_token=self._eos_token,
             pad_token=self._pad_token,
             tokenizer_key=FILE_KEY,
         )
@@ -113,11 +102,10 @@ def test_task_adhoc() -> None:
     dataset = task.get_dataset("train")
     dataloader = task.get_dataloader(dataset, "train")
 
-    for sample, is_me in itertools.islice(dataloader, 3):
+    for sample in itertools.islice(dataloader, 3):
         sample_str = task.tokenizer.decode(sample[0].tolist())
         logger.info("Sample: %s", sample_str)
         logger.info("Sample size: %s", sample.shape)
-        logger.info("Is me: %s", is_me.shape)
 
 
 if __name__ == "__main__":

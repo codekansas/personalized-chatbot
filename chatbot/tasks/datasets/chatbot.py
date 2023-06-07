@@ -163,35 +163,25 @@ def _pack_training_samples(
             ordered_messages = sorted(messages["messages"], key=lambda m: m["timestamp_ms"])
 
             for convo in gen_convos(ordered_messages):
-                messages_contents = [
+                full_convo = sep_str.join(
                     (
-                        ("" if i == 0 else sep_str) + (self_prefix if m["sender_name"] == user_name else other_prefix),
-                        ftfy.fix_text(m.get("content", empty_str)),
-                        m["sender_name"] == user_name,
+                        (self_prefix if m["sender_name"] == user_name else other_prefix)
+                        + ftfy.fix_text(m.get("content", empty_str))
                     )
-                    for i, m in enumerate(convo)
-                ]
-
-                # Gets the tokens and the masks for the tokens.
-                tokens, masks = zip(
-                    *(
-                        t
-                        for p, m, s in messages_contents
-                        for t in ((np.array(tokenizer(p)), 0), (np.array(tokenizer(m)), 1 if s else 2))
-                    )
+                    for m in convo
                 )
 
-                token_arr = np.concatenate(tokens)
-                mask_arr = np.concatenate([np.full_like(t, m) for t, m in zip(tokens, masks)])
+                # Tokenizes the conversation.
+                tokens = tokenizer(full_convo)
 
+                # Converts the tokens to bytes.
+                token_arr = np.array(tokens)
                 token_bytes = token_arr.astype(token_dtype).tobytes()
-                mask_bytes = mask_arr.astype("B").tobytes()
-                total_bytes = 4 + 4 + len(token_bytes) + len(mask_bytes)
+                total_bytes = 4 + 4 + len(token_bytes)
 
                 # Writes the conversation information to the file.
                 fb.write(np.array([total_bytes, len(token_arr)], dtype="I").tobytes())
                 fb.write(token_bytes)
-                fb.write(mask_bytes)
 
     tmp_packed_file_path.rename(packed_file_path)
 
@@ -230,7 +220,7 @@ def _get_sampler(offsets: list[int], num_samples: int) -> WeightedRandomSampler:
     return WeightedRandomSampler(weights=weights, num_samples=num_samples, replacement=True)
 
 
-class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
+class ChatbotDataset(Dataset[Tensor]):
     """Defines a dataset for training the chatbot.
 
     This dataset returns a tuple representing a conversation. The first element
@@ -244,7 +234,6 @@ class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
         self,
         tsz: int,
         tokenizer: Callable[[str], list[int]],
-        eos_token: int,
         pad_token: int,
         self_prefix: str = "Me: ",
         other_prefix: str = "Them: ",
@@ -255,7 +244,6 @@ class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
         super().__init__()
 
         self._tsz = tsz
-        self._eos_token = eos_token
         self._pad_token = pad_token
         self._tok_bytes = 4 if tokenizer_is_int32 else 2
         self._tok_dtype = "I" if tokenizer_is_int32 else "H"
@@ -274,7 +262,7 @@ class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
         offsets = _compute_offsets(file_key=file_key)
         return _get_sampler(offsets, 1000000)
 
-    def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
+    def __getitem__(self, index: int) -> Tensor:
         if index < 0:
             index += len(self)
 
@@ -284,28 +272,20 @@ class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
 
             # Gets a random start position in the conversation.
             start = random.randint(0, max(length - self._tsz, 0))
-            end = min(start + self._tsz - 1, length)
+            end = min(start + self._tsz, length)
 
             # Reads the tokens.
             fp.seek(start * self._tok_bytes, 1)
             tokens = np.frombuffer(fp.read((end - start) * self._tok_bytes), dtype=self._tok_dtype)
 
-            # Reads the masks.
-            fp.seek((length - end) * self._tok_bytes + start, 1)
-            is_me_mask = np.frombuffer(fp.read(end - start), dtype="B")
-
             # Pads the tokens at the end.
-            tokens = np.pad(tokens, (0, 1), constant_values=self._eos_token)
             tokens = np.pad(tokens, (0, self._tsz - len(tokens)), constant_values=self._pad_token)
-            is_me_mask = np.pad(is_me_mask, (0, self._tsz - len(is_me_mask)), constant_values=3)
 
         tokens_arr = torch.from_numpy(tokens.astype(np.int32))
-        is_me_mask_arr = torch.from_numpy(is_me_mask.astype(np.uint8))
 
         assert tokens_arr.shape == (self._tsz,)
-        assert is_me_mask_arr.shape == (self._tsz,)
 
-        return tokens_arr, is_me_mask_arr
+        return tokens_arr
 
     def __len__(self) -> int:
         return len(self._offsets) - 1
@@ -321,11 +301,10 @@ def test_dataset_adhoc() -> None:
         t = t[: t.index(0)] if 0 in t else t
         return "".join("\n" if c == 2 else chr(c) for c in t)
 
-    dataset = ChatbotDataset(512, simple_tokenizer, 0, 1)
+    dataset = ChatbotDataset(512, simple_tokenizer, 0)
     for _ in range(5):
-        sample, is_me = random.choice(dataset)
+        sample = random.choice(dataset)
         logger.info("Sample: %s", simple_detokenizer(sample.tolist()))
-        logger.info("Self: %s", simple_detokenizer(sample[is_me == 1].tolist()))
         logger.info("Sample size: %s", sample.shape)
 
 
