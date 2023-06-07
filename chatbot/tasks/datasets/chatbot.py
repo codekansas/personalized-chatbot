@@ -225,8 +225,8 @@ def _compute_offsets(packed_file_path: Path | None = None, file_key: str | None 
 
 
 def _get_sampler(offsets: list[int], num_samples: int) -> WeightedRandomSampler:
-    weights = np.diff(offsets) - 8
-    weights = (weights.astype(np.double) / weights.sum()).tolist()
+    weights = (np.diff(offsets) - 8).clip(min=0.0).astype(np.double)
+    weights = (weights / (weights.sum() + 1e-3)).tolist()
     return WeightedRandomSampler(weights=weights, num_samples=num_samples, replacement=True)
 
 
