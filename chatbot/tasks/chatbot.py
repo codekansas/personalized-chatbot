@@ -5,7 +5,6 @@ import logging
 from dataclasses import dataclass
 
 import ml.api as ml
-import torch
 import torch.nn.functional as F
 from ml.core.state import Phase
 from ml.tasks.base import DataLoaderConfig
@@ -35,7 +34,7 @@ class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
 # These types are defined here so that they can be used consistently
 # throughout the task and only changed in one location.
 Model = ChatbotModel
-Batch = tuple[Tensor, Tensor]
+Batch = Tensor
 Output = Tensor
 Loss = dict[str, Tensor]
 
@@ -56,46 +55,26 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         self._pad_token = pad_token
 
     def run_model(self, model: Model, batch: Batch, state: ml.State) -> Output:
-        tokens, _ = batch
-        return model(tokens[:, :-1])
+        return model(batch[:, :-1])
 
     def compute_loss(self, model: Model, batch: Batch, state: ml.State, output: Output) -> Loss:
-        tokens, mask = batch
-
         # Token prediction loss.
         xent_loss = F.cross_entropy(
             output.transpose(1, 2),
-            tokens[:, 1:].long(),
+            batch[:, 1:].long(),
             ignore_index=self._pad_token,
             reduction="none",
-        )
-
-        # Supervise only the desired parts of the sequence.
-        mask = mask[:, 1:]
-        loss_mask = mask == 1
-        if self.supervise_prompt:
-            loss_mask |= mask == 0
-        if self.supervise_other:
-            loss_mask |= mask == 2
-        xent_loss = (xent_loss * loss_mask.to(xent_loss)).sum(dim=1) / mask.sum(dim=1)
+        ).mean(dim=1)
 
         # Logs some samples.
         if state.phase == "valid":
 
             def show_gt() -> str:
-                return model.tokens_to_string(tokens[0])
+                return model.tokens_to_string(batch[0])
 
             def sample_pred() -> str:
-                tokens = torch.cat(
-                    [
-                        model.string_to_tokens("Them: "),
-                        model.string_to_tokens("How are you feeling?"),
-                        model.string_to_tokens("\nMe: "),
-                    ],
-                    dim=0,
-                )
-                prompt = model.tokens_to_string(tokens)
-                return prompt + "".join(list(model.infer(tokens.unsqueeze(0))))
+                prompt = "Them: Hey, it's been a while.\nThem: How are you doing?\nMe:"
+                return prompt + "".join(list(model.infer(prompt)))
 
             self.logger.log_string("sample", show_gt)
             self.logger.log_string("pred", sample_pred)
@@ -127,11 +106,10 @@ def test_task_adhoc() -> None:
     dataset = task.get_dataset("train")
     dataloader = task.get_dataloader(dataset, "train")
 
-    for sample, is_me in itertools.islice(dataloader, 3):
+    for sample in itertools.islice(dataloader, 3):
         sample_str = task.tokenizer.decode(sample[0].tolist())
         logger.info("Sample: %s", sample_str)
         logger.info("Sample size: %s", sample.shape)
-        logger.info("Is me: %s", is_me.shape)
 
 
 if __name__ == "__main__":
