@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 
 import ml.api as ml
+import torch
 import torch.nn.functional as F
 from ml.core.state import Phase
 from ml.tasks.base import DataLoaderConfig
@@ -81,11 +82,23 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         # Logs some samples.
         if state.phase == "valid":
 
-            def sample() -> str:
-                prompt = "Them: How are you feeling?\nMe: "
-                return prompt + "".join(list(model.infer(prompt)))
+            def show_gt() -> str:
+                return model.tokens_to_string(tokens[0])
 
-            self.logger.log_string("sample", sample)
+            def sample_pred() -> str:
+                tokens = torch.cat(
+                    [
+                        model.string_to_tokens("Them: "),
+                        model.string_to_tokens("How are you feeling?"),
+                        model.string_to_tokens("\nMe: "),
+                    ],
+                    dim=0,
+                )
+                prompt = model.tokens_to_string(tokens)
+                return prompt + "".join(list(model.infer(tokens.unsqueeze(0))))
+
+            self.logger.log_string("sample", show_gt)
+            self.logger.log_string("pred", sample_pred)
 
         return {
             "token": xent_loss,

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterator, Sequence
 
 import ml.api as ml
+import torch
 from pretrained.rwkv import pretrained_rwkv
 from torch import Tensor
 
@@ -28,7 +29,7 @@ class ChatbotModel(ml.BaseModel[ChatbotModelConfig]):
 
     def infer(
         self,
-        prompt: str,
+        prompt: str | Tensor,
         max_len: int = 256,
         temperature: float = 1.0,
         top_p: float = 0.85,
@@ -36,3 +37,9 @@ class ChatbotModel(ml.BaseModel[ChatbotModelConfig]):
         end_strs: Sequence[str] | None = None,
     ) -> Iterator[str]:
         yield from self.predictor.generate(prompt, max_len, temperature, top_p, end_toks, end_strs)
+
+    def tokens_to_string(self, tokens: Tensor) -> str:
+        return self.predictor.tokenizer.decode(tokens.tolist())
+
+    def string_to_tokens(self, text: str) -> Tensor:
+        return torch.tensor(self.predictor.tokenizer.encode(text).ids)
