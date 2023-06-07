@@ -234,7 +234,6 @@ class ChatbotDataset(Dataset[Tensor]):
         self,
         tsz: int,
         tokenizer: Callable[[str], list[int]],
-        eos_token: int,
         pad_token: int,
         self_prefix: str = "Me: ",
         other_prefix: str = "Them: ",
@@ -245,7 +244,6 @@ class ChatbotDataset(Dataset[Tensor]):
         super().__init__()
 
         self._tsz = tsz
-        self._eos_token = eos_token
         self._pad_token = pad_token
         self._tok_bytes = 4 if tokenizer_is_int32 else 2
         self._tok_dtype = "I" if tokenizer_is_int32 else "H"
@@ -274,14 +272,13 @@ class ChatbotDataset(Dataset[Tensor]):
 
             # Gets a random start position in the conversation.
             start = random.randint(0, max(length - self._tsz, 0))
-            end = min(start + self._tsz - 1, length)
+            end = min(start + self._tsz, length)
 
             # Reads the tokens.
             fp.seek(start * self._tok_bytes, 1)
             tokens = np.frombuffer(fp.read((end - start) * self._tok_bytes), dtype=self._tok_dtype)
 
             # Pads the tokens at the end.
-            tokens = np.pad(tokens, (0, 1), constant_values=self._eos_token)
             tokens = np.pad(tokens, (0, self._tsz - len(tokens)), constant_values=self._pad_token)
 
         tokens_arr = torch.from_numpy(tokens.astype(np.int32))
@@ -304,7 +301,7 @@ def test_dataset_adhoc() -> None:
         t = t[: t.index(0)] if 0 in t else t
         return "".join("\n" if c == 2 else chr(c) for c in t)
 
-    dataset = ChatbotDataset(512, simple_tokenizer, 0, 1)
+    dataset = ChatbotDataset(512, simple_tokenizer, 0)
     for _ in range(5):
         sample = random.choice(dataset)
         logger.info("Sample: %s", simple_detokenizer(sample.tolist()))

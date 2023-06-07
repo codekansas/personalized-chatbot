@@ -16,7 +16,6 @@ from torch.utils.data.sampler import Sampler
 from chatbot.models.llm import ChatbotModel
 from chatbot.tasks.datasets.chatbot import ChatbotDataset
 
-EOS_TOKEN = "<|endoftext|>"
 PAD_TOKEN = "<|padding|>"
 
 FILE_KEY = "rwkv_tokens"
@@ -49,22 +48,20 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         self.supervise_other = config.supervise_other
 
         # Gets the token IDs for the special tokens.
-        assert isinstance(eos_token := self.tokenizer.token_to_id(EOS_TOKEN), int)
         assert isinstance(pad_token := self.tokenizer.token_to_id(PAD_TOKEN), int)
-        self._eos_token = eos_token
         self._pad_token = pad_token
 
     def run_model(self, model: Model, batch: Batch, state: ml.State) -> Output:
         return model(batch[:, :-1])
 
     def compute_loss(self, model: Model, batch: Batch, state: ml.State, output: Output) -> Loss:
+        preds, targets = output.transpose(1, 2), batch[:, 1:].long()
+
+        # model.tokens_to_string(preds.argmax(dim=1)[0])
+        # model.tokens_to_string(targets[0])
+
         # Token prediction loss.
-        xent_loss = F.cross_entropy(
-            output.transpose(1, 2),
-            batch[:, 1:].long(),
-            ignore_index=self._pad_token,
-            reduction="none",
-        ).mean(dim=1)
+        xent_loss = F.cross_entropy(preds, targets, ignore_index=self._pad_token, reduction="none")
 
         # Logs some samples.
         if state.phase == "valid":
@@ -87,7 +84,6 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         return ChatbotDataset(
             tsz=self.config.tsz,
             tokenizer=lambda text: self.tokenizer.encode(text).ids,
-            eos_token=self._eos_token,
             pad_token=self._pad_token,
             tokenizer_key=FILE_KEY,
         )
