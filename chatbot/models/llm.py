@@ -29,7 +29,7 @@ class ChatbotModel(ml.BaseModel[ChatbotModelConfig]):
 
     def infer(
         self,
-        prompt: str | Tensor,
+        prompt: str,
         max_len: int = 256,
         temperature: float = 1.0,
         top_p: float = 0.85,
