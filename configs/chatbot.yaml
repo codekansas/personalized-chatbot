@@ -8,7 +8,7 @@ task:
     batch_size: 16
 
 optimizer:
-  name: adam
+  name: adamw
   lr: 3e-4
 
 lr_scheduler:
