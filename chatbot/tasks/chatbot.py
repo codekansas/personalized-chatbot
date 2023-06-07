@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
-    tsz: int = ml.conf_field(32, help="The maximum number of tokens in a sequence.")
-    supervise_prompt: bool = ml.conf_field(False, help="If set, supervise the prompt tokens as well.")
-    supervise_other: bool = ml.conf_field(False, help="If set, supervise the other speaker's tokens as well.")
+    tsz: int = ml.conf_field(64, help="The maximum number of tokens in a sequence.")
+    supervise_prompt: bool = ml.conf_field(True, help="If set, supervise the prompt tokens as well.")
+    supervise_other: bool = ml.conf_field(True, help="If set, supervise the other speaker's tokens as well.")
 
 
 # These types are defined here so that they can be used consistently
@@ -82,7 +82,8 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         if state.phase == "valid":
 
             def sample() -> str:
-                return model.infer("Them: How are you feeling? Me: ")
+                prompt = "Them: How are you feeling?\nMe: "
+                return prompt + "".join(list(model.infer(prompt, end_strs=["\n"])))
 
             self.logger.log_string("sample", sample)
 
