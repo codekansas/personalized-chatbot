@@ -1,13 +1,15 @@
 """Defines a dataset for reading from your Facebook Messenger data."""
 
+import functools
 import json
 import logging
 import random
 import zipfile
 from collections import Counter
 from pathlib import Path
-from typing import IO, Any, Callable, Iterator
+from typing import Any, Callable, Iterator
 
+import ftfy
 import ml.api as ml
 import numpy as np
 import torch
@@ -19,6 +21,7 @@ from torch.utils.data.sampler import WeightedRandomSampler
 logger = logging.getLogger(__name__)
 
 
+@functools.lru_cache
 def _get_message_paths(search_dir: Path) -> list[Path]:
     """Extracts the paths to all message files from the Facebook Messenger data.
 
@@ -59,6 +62,7 @@ def _get_message_paths(search_dir: Path) -> list[Path]:
     return messages
 
 
+@functools.lru_cache
 def _packed_file_path(file_key: str) -> Path:
     search_dir = (ml.get_data_dir() / "messenger").resolve()
     if not search_dir.exists():
@@ -67,6 +71,7 @@ def _packed_file_path(file_key: str) -> Path:
     return packed_file_path
 
 
+@functools.lru_cache
 def _pack_training_samples(
     tokenizer: Callable[[str], list[int]],
     file_key: str,
@@ -161,7 +166,7 @@ def _pack_training_samples(
                 messages_contents = [
                     (
                         ("" if i == 0 else sep_str) + (self_prefix if m["sender_name"] == user_name else other_prefix),
-                        m.get("content", empty_str),
+                        ftfy.fix_text(m.get("content", empty_str)),
                         m["sender_name"] == user_name,
                     )
                     for i, m in enumerate(convo)
@@ -193,15 +198,20 @@ def _pack_training_samples(
     return packed_file_path
 
 
-def _compute_offsets(packed_file_path: Path) -> list[int]:
+@functools.lru_cache
+def _compute_offsets(packed_file_path: Path | None = None, file_key: str | None = None) -> list[int]:
     """Computes the offsets of each conversation in the packed file.
 
     Args:
         packed_file_path: The path to the packed file.
+        file_key: The key to use for the packed file.
 
     Returns:
         The offsets of each conversation in the packed file.
     """
+    if packed_file_path is None:
+        assert file_key is not None, "File key is required if path is missing"
+        packed_file_path = _packed_file_path(file_key)
     with ml.Timer("computing offsets"), open(packed_file_path, "rb") as f:
         offsets: list[int] = [0]
         while True:
@@ -212,6 +222,12 @@ def _compute_offsets(packed_file_path: Path) -> list[int]:
             except ValueError:
                 break
     return offsets
+
+
+def _get_sampler(offsets: list[int], num_samples: int) -> WeightedRandomSampler:
+    weights = np.diff(offsets) - 8
+    weights = (weights.astype(np.double) / weights.sum()).tolist()
+    return WeightedRandomSampler(weights=weights, num_samples=num_samples, replacement=True)
 
 
 class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
@@ -253,10 +269,10 @@ class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
         )
         self._offsets = _compute_offsets(self._packed_file_path)
 
-    def get_sampler(self, bsz: int) -> WeightedRandomSampler:
-        weights = np.diff(self._offsets) - 8
-        weights = (weights.astype(np.double) / weights.sum()).tolist()
-        return WeightedRandomSampler(weights=weights, num_samples=bsz, replacement=True)
+    @classmethod
+    def get_sampler(cls, file_key: str, num_samples: int) -> WeightedRandomSampler:
+        offsets = _compute_offsets(file_key=file_key)
+        return _get_sampler(offsets, 1000000)
 
     def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
         if index < 0:
@@ -268,7 +284,7 @@ class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
 
             # Gets a random start position in the conversation.
             start = random.randint(0, max(length - self._tsz, 0))
-            end = min(start + self._tsz, length)
+            end = min(start + self._tsz - 1, length)
 
             # Reads the tokens.
             fp.seek(start * self._tok_bytes, 1)
@@ -279,6 +295,7 @@ class ChatbotDataset(Dataset[tuple[Tensor, Tensor]]):
             is_me_mask = np.frombuffer(fp.read(end - start), dtype="B")
 
             # Pads the tokens at the end.
+            tokens = np.pad(tokens, (0, 1), constant_values=self._eos_token)
             tokens = np.pad(tokens, (0, self._tsz - len(tokens)), constant_values=self._pad_token)
             is_me_mask = np.pad(is_me_mask, (0, self._tsz - len(is_me_mask)), constant_values=3)
 

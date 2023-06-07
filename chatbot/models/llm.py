@@ -22,7 +22,8 @@ class ChatbotModel(ml.BaseModel[ChatbotModelConfig]):
         self.predictor = self.rwkv.predictor()
 
     def forward(self, tokens: Tensor) -> Tensor:
-        return self.rwkv(tokens)
+        preds, _ = self.rwkv.forward(tokens)
+        return preds
 
     def infer(self, prompt: str) -> str:
-        return self.predictor.generate(prompt)
+        return "".join(list(self.predictor.generate(prompt)))
