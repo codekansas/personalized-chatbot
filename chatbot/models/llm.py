@@ -11,7 +11,6 @@ from torch import Tensor
 
 @dataclass
 class ChatbotModelConfig(ml.BaseModelConfig):
-    model_size: str = ml.conf_field("430m", help="The size of the pre-trained model.")
     lora_rank: int = ml.conf_field(4, help="The rank of the LoRA approximation.")
 
 
