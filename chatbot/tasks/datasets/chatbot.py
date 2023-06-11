@@ -242,6 +242,10 @@ class ChatbotDataset(Dataset[Tensor]):
 
     def __getitem__(self, index: int) -> Tensor:
         tokens = self._reader[index]
+        length = len(tokens)
+        start = random.randint(0, max(length - self._tsz, 0))
+        end = min(start + self._tsz, length)
+        tokens = tokens[start:end] + [self._pad_token] * (self._tsz - (end - start))
         return torch.tensor(tokens)
 
     def __len__(self) -> int:
