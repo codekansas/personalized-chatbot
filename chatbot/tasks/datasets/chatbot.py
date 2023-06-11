@@ -82,6 +82,7 @@ def _pack_training_samples(
     empty_str: str = "<empty>",
     seconds_between_convos: int = 60 * 60 * 8,
     min_convo_length: int = 3,
+    compressed: bool = True,
 ) -> Path:
     """Packs training samples into a single file.
 
@@ -102,9 +103,9 @@ def _pack_training_samples(
         other_prefix: The prefix to use for messages sent by the other user.
         sep_str: The token to use to separate messages.
         empty_str: The string to use for empty messages.
-        token_dtype: The dtype to use for the tokens.
         seconds_between_convos: The number of seconds between conversations.
         min_convo_length: The minimum number of messages in a conversation.
+        compressed: Whether to compress the packed file.
 
     Returns:
         The path to the packed file.
@@ -154,7 +155,7 @@ def _pack_training_samples(
     with ml.Timer("writing packed file"), ml.TokenWriter(
         (tmp_packed_file_path := packed_file_path.parent / f"{file_key}.bin.tmp"),
         num_tokens=num_tokens,
-        compressed=True,
+        compressed=compressed,
         overwrite_if_exists=True,
     ) as writer:
         for messages_path in tqdm.tqdm(all_messages):
@@ -216,14 +217,11 @@ class ChatbotDataset(Dataset[Tensor]):
 
         self._tsz = tsz
         self._pad_token = pad_token
-        self._tok_bytes = 4 if tokenizer_is_int32 else 2
-        self._tok_dtype = "I" if tokenizer_is_int32 else "H"
 
         packed_file_path = _pack_training_samples(
             tokenizer=tokenizer,
             num_tokens=num_tokens,
             file_key=tokenizer_key,
-            token_dtype=self._tok_dtype,
             self_prefix=self_prefix,
             other_prefix=other_prefix,
             sep_str=sep_token,
@@ -244,39 +242,18 @@ class ChatbotDataset(Dataset[Tensor]):
         return _get_sampler(reader._offsets, 1000000)
 
     def __getitem__(self, index: int) -> Tensor:
-        if index < 0:
-            index += len(self)
-
-        with open(self._packed_file_path, "rb") as fp:
-            fp.seek(self._offsets[index] + 4, 0)
-            length = np.frombuffer(fp.read(4), dtype="I").item()
-
-            # Gets a random start position in the conversation.
-            start = random.randint(0, max(length - self._tsz, 0))
-            end = min(start + self._tsz, length)
-
-            # Reads the tokens.
-            fp.seek(start * self._tok_bytes, 1)
-            tokens = np.frombuffer(fp.read((end - start) * self._tok_bytes), dtype=self._tok_dtype)
-
-            # Pads the tokens at the end.
-            tokens = np.pad(tokens, (0, self._tsz - len(tokens)), constant_values=self._pad_token)
-
-        tokens_arr = torch.from_numpy(tokens.astype(np.int32))
-
-        assert tokens_arr.shape == (self._tsz,)
-
-        return tokens_arr
+        tokens = self._reader[index]
+        return torch.tensor(tokens)
 
     def __len__(self) -> int:
-        return len(self._offsets) - 1
+        return len(self._reader)
 
 
 def test_dataset_adhoc() -> None:
     ml.configure_logging()
 
     def simple_tokenizer(s: str) -> list[int]:
-        return [ord(c) for c in s]
+        return [ord(c) % 256 for c in s]
 
     def simple_detokenizer(t: list[int]) -> str:
         t = t[: t.index(0)] if 0 in t else t
