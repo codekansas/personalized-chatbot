@@ -3,31 +3,28 @@
 import itertools
 import logging
 from dataclasses import dataclass
+from typing import cast, get_args
 
 import ml.api as ml
 import torch.nn.functional as F
 from ml.core.state import Phase
 from ml.tasks.base import DataLoaderConfig
-from pretrained.rwkv import get_tokenizer
 from torch import Tensor
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.sampler import Sampler
 
 from chatbot.models.llm import ChatbotModel
-from chatbot.tasks.datasets.chatbot import ChatbotDataset
-
-PAD_TOKEN = "<|padding|>"
-
-FILE_KEY = "rwkv_tokens"
+from chatbot.tasks.datasets.chatbot import ChatbotDataset, TokenizerKey, get_tokenizer
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
-    tsz: int = ml.conf_field(64, help="The maximum number of tokens in a sequence.")
+    tsz: int = ml.conf_field(512, help="The maximum number of tokens in a sequence.")
     supervise_prompt: bool = ml.conf_field(True, help="If set, supervise the prompt tokens as well.")
     supervise_other: bool = ml.conf_field(True, help="If set, supervise the other speaker's tokens as well.")
+    key: str = ml.conf_field("rwkv", help="The tokenizer key to use.")
 
 
 # These types are defined here so that they can be used consistently
@@ -43,13 +40,14 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
     def __init__(self, config: ChatbotTaskConfig) -> None:
         super().__init__(config)
 
-        self.tokenizer = get_tokenizer()
-        self.supervise_prompt = config.supervise_prompt
-        self.supervise_other = config.supervise_other
+        # Gets the tokenizr and detokenizer.
+        assert config.key in get_args(TokenizerKey), f"Invalid tokenizer key: {config.key}"
+        self.key = cast(TokenizerKey, config.key)
+        self._tokenize, self._detokenize, _, self._pad_token = get_tokenizer(cast(TokenizerKey, self.key))
 
-        # Gets the token IDs for the special tokens.
-        assert isinstance(pad_token := self.tokenizer.token_to_id(PAD_TOKEN), int)
-        self._pad_token = pad_token
+        # Stores the strings for prompting the model.
+        self._supervise_prompt = config.supervise_prompt
+        self._supervise_other = config.supervise_other
 
     def run_model(self, model: Model, batch: Batch, state: ml.State) -> Output:
         return model(batch[:, :-1])
@@ -81,16 +79,10 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         }
 
     def get_dataset(self, phase: ml.Phase) -> ChatbotDataset:
-        return ChatbotDataset(
-            tsz=self.config.tsz,
-            tokenizer=lambda text: self.tokenizer.encode(text).ids,
-            num_tokens=self.tokenizer.get_vocab_size(),
-            pad_token=self._pad_token,
-            tokenizer_key=FILE_KEY,
-        )
+        return ChatbotDataset(self.key, self.config.tsz, self._pad_token)
 
     def get_sampler(self, dataset: Dataset, cfg: DataLoaderConfig, phase: Phase) -> Sampler[int]:
-        return ChatbotDataset.get_sampler(FILE_KEY)
+        return ChatbotDataset.get_sampler(self.key)
 
 
 def test_task_adhoc() -> None:
@@ -104,7 +96,7 @@ def test_task_adhoc() -> None:
     dataloader = task.get_dataloader(dataset, "train")
 
     for sample in itertools.islice(dataloader, 3):
-        sample_str = task.tokenizer.decode(sample[0].tolist())
+        sample_str = task._detokenize(sample[0].tolist())
         logger.info("Sample: %s", sample_str)
         logger.info("Sample size: %s", sample.shape)
 
