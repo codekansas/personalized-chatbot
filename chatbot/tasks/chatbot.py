@@ -84,12 +84,13 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         return ChatbotDataset(
             tsz=self.config.tsz,
             tokenizer=lambda text: self.tokenizer.encode(text).ids,
+            num_tokens=self.tokenizer.get_vocab_size(),
             pad_token=self._pad_token,
             tokenizer_key=FILE_KEY,
         )
 
     def get_sampler(self, dataset: Dataset, cfg: DataLoaderConfig, phase: Phase) -> Sampler[int]:
-        return ChatbotDataset.get_sampler(FILE_KEY, cfg.batch_size)
+        return ChatbotDataset.get_sampler(FILE_KEY)
 
 
 def test_task_adhoc() -> None:

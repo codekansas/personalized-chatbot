@@ -74,14 +74,15 @@ def _packed_file_path(file_key: str) -> Path:
 @functools.lru_cache
 def _pack_training_samples(
     tokenizer: Callable[[str], list[int]],
+    num_tokens: int,
     file_key: str,
     self_prefix: str = "Me: ",
     other_prefix: str = "Them: ",
     sep_str: str = "\n",
     empty_str: str = "<empty>",
-    token_dtype: str = "I",
     seconds_between_convos: int = 60 * 60 * 8,
     min_convo_length: int = 3,
+    compressed: bool = True,
 ) -> Path:
     """Packs training samples into a single file.
 
@@ -96,14 +97,15 @@ def _pack_training_samples(
 
     Args:
         tokenizer: A function that converts a string into a list of tokens.
+        num_tokens: The number of possible tokens from the tokenizer.
         file_key: The key to use for the packed file.
         self_prefix: The prefix to use for messages sent by the user.
         other_prefix: The prefix to use for messages sent by the other user.
         sep_str: The token to use to separate messages.
         empty_str: The string to use for empty messages.
-        token_dtype: The dtype to use for the tokens.
         seconds_between_convos: The number of seconds between conversations.
         min_convo_length: The minimum number of messages in a conversation.
+        compressed: Whether to compress the packed file.
 
     Returns:
         The path to the packed file.
@@ -127,6 +129,8 @@ def _pack_training_samples(
             if "participants" not in messages or len(participants := messages["participants"]) <= 1:
                 continue
             participant_counts.update([p["name"] for p in participants if "name" in p])
+            if participant_counts.total() > 100:
+                break
     if len(participant_counts) == 0:
         raise RuntimeError("Could not determine user ID")
     user_name = participant_counts.most_common(1)[0][0]
@@ -148,8 +152,12 @@ def _pack_training_samples(
             yield convo
 
     # Packs the training samples into a single file.
-    tmp_packed_file_path = packed_file_path.parent / f"{file_key}.bin.tmp"
-    with ml.Timer("writing packed file"), open(tmp_packed_file_path, "wb") as fb:
+    with ml.Timer("writing packed file"), ml.TokenWriter(
+        (tmp_packed_file_path := packed_file_path.parent / f"{file_key}.bin.tmp"),
+        num_tokens=num_tokens,
+        compressed=compressed,
+        overwrite_if_exists=True,
+    ) as writer:
         for messages_path in tqdm.tqdm(all_messages):
             with open(messages_path, "r") as f:
                 messages = json.load(f)
@@ -170,48 +178,11 @@ def _pack_training_samples(
                     )
                     for m in convo
                 )
-
-                # Tokenizes the conversation.
-                tokens = tokenizer(full_convo)
-
-                # Converts the tokens to bytes.
-                token_arr = np.array(tokens)
-                token_bytes = token_arr.astype(token_dtype).tobytes()
-                total_bytes = 4 + 4 + len(token_bytes)
-
-                # Writes the conversation information to the file.
-                fb.write(np.array([total_bytes, len(token_arr)], dtype="I").tobytes())
-                fb.write(token_bytes)
+                writer.write(tokenizer(full_convo))
 
     tmp_packed_file_path.rename(packed_file_path)
 
     return packed_file_path
-
-
-@functools.lru_cache
-def _compute_offsets(packed_file_path: Path | None = None, file_key: str | None = None) -> list[int]:
-    """Computes the offsets of each conversation in the packed file.
-
-    Args:
-        packed_file_path: The path to the packed file.
-        file_key: The key to use for the packed file.
-
-    Returns:
-        The offsets of each conversation in the packed file.
-    """
-    if packed_file_path is None:
-        assert file_key is not None, "File key is required if path is missing"
-        packed_file_path = _packed_file_path(file_key)
-    with ml.Timer("computing offsets"), open(packed_file_path, "rb") as f:
-        offsets: list[int] = [0]
-        while True:
-            try:
-                length = np.frombuffer(f.read(4), dtype="I").item()
-                offsets.append(offsets[-1] + length)
-                f.seek(length - 4, 1)
-            except ValueError:
-                break
-    return offsets
 
 
 def _get_sampler(offsets: list[int], num_samples: int) -> WeightedRandomSampler:
@@ -234,6 +205,7 @@ class ChatbotDataset(Dataset[Tensor]):
         self,
         tsz: int,
         tokenizer: Callable[[str], list[int]],
+        num_tokens: int,
         pad_token: int,
         self_prefix: str = "Me: ",
         other_prefix: str = "Them: ",
@@ -245,63 +217,49 @@ class ChatbotDataset(Dataset[Tensor]):
 
         self._tsz = tsz
         self._pad_token = pad_token
-        self._tok_bytes = 4 if tokenizer_is_int32 else 2
-        self._tok_dtype = "I" if tokenizer_is_int32 else "H"
-        self._packed_file_path = _pack_training_samples(
+
+        packed_file_path = _pack_training_samples(
             tokenizer=tokenizer,
+            num_tokens=num_tokens,
             file_key=tokenizer_key,
-            token_dtype=self._tok_dtype,
             self_prefix=self_prefix,
             other_prefix=other_prefix,
             sep_str=sep_token,
         )
-        self._offsets = _compute_offsets(self._packed_file_path)
+
+        self._reader = ml.TokenReader(
+            packed_file_path,
+            offsets_path=packed_file_path.with_suffix(".offsets"),
+        )
 
     @classmethod
-    def get_sampler(cls, file_key: str, num_samples: int) -> WeightedRandomSampler:
-        offsets = _compute_offsets(file_key=file_key)
-        return _get_sampler(offsets, 1000000)
+    def get_sampler(cls, file_key: str) -> WeightedRandomSampler:
+        packed_file_path = _packed_file_path(file_key)
+        reader = ml.TokenReader(
+            packed_file_path,
+            offsets_path=packed_file_path.with_suffix(".offsets"),
+        )
+        return _get_sampler(reader._offsets, 1000000)
 
     def __getitem__(self, index: int) -> Tensor:
-        if index < 0:
-            index += len(self)
-
-        with open(self._packed_file_path, "rb") as fp:
-            fp.seek(self._offsets[index] + 4, 0)
-            length = np.frombuffer(fp.read(4), dtype="I").item()
-
-            # Gets a random start position in the conversation.
-            start = random.randint(0, max(length - self._tsz, 0))
-            end = min(start + self._tsz, length)
-
-            # Reads the tokens.
-            fp.seek(start * self._tok_bytes, 1)
-            tokens = np.frombuffer(fp.read((end - start) * self._tok_bytes), dtype=self._tok_dtype)
-
-            # Pads the tokens at the end.
-            tokens = np.pad(tokens, (0, self._tsz - len(tokens)), constant_values=self._pad_token)
-
-        tokens_arr = torch.from_numpy(tokens.astype(np.int32))
-
-        assert tokens_arr.shape == (self._tsz,)
-
-        return tokens_arr
+        tokens = self._reader[index]
+        return torch.tensor(tokens)
 
     def __len__(self) -> int:
-        return len(self._offsets) - 1
+        return len(self._reader)
 
 
 def test_dataset_adhoc() -> None:
     ml.configure_logging()
 
     def simple_tokenizer(s: str) -> list[int]:
-        return [ord(c) for c in s]
+        return [ord(c) % 256 for c in s]
 
     def simple_detokenizer(t: list[int]) -> str:
         t = t[: t.index(0)] if 0 in t else t
         return "".join("\n" if c == 2 else chr(c) for c in t)
 
-    dataset = ChatbotDataset(512, simple_tokenizer, 0)
+    dataset = ChatbotDataset(512, simple_tokenizer, 256, 0)
     for _ in range(5):
         sample = random.choice(dataset)
         logger.info("Sample: %s", simple_detokenizer(sample.tolist()))
