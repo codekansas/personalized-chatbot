@@ -211,7 +211,6 @@ class ChatbotDataset(Dataset[Tensor]):
         other_prefix: str = "Them: ",
         sep_token: str = "\n",
         tokenizer_key: str = "default",
-        tokenizer_is_int32: bool = False,
     ) -> None:
         super().__init__()
 
