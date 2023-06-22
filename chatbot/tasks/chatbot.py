@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
-    tsz: int = ml.conf_field(512, help="The maximum number of tokens in a sequence.")
+    tsz: int = ml.conf_field(384, help="The maximum number of tokens in a sequence.")
     supervise_prompt: bool = ml.conf_field(True, help="If set, supervise the prompt tokens as well.")
     supervise_other: bool = ml.conf_field(True, help="If set, supervise the other speaker's tokens as well.")
     key: str = ml.conf_field("rwkv", help="The tokenizer key to use.")
