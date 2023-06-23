@@ -13,7 +13,7 @@ from torch import Tensor
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.sampler import Sampler
 
-from chatbot.models.llm import ChatbotModel
+from chatbot.models.rwkv import RwkvChatbotModel
 from chatbot.tasks.datasets.chatbot import ChatbotDataset, TokenizerKey, get_tokenizer
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
 
 # These types are defined here so that they can be used consistently
 # throughout the task and only changed in one location.
-Model = ChatbotModel
+Model = RwkvChatbotModel
 Batch = Tensor
 Output = Tensor
 Loss = dict[str, Tensor]

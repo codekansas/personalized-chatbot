@@ -28,3 +28,39 @@ Check out the documentation [here](https://ml.bolte.cc/getting_started.html).
 2. Create a new JSON dump of your Messenger conversations from [here](https://www.messenger.com/dyi)
 3. Download the ZIP file to the newly-created directory; it should have a path like `$DATA_DIR/messenger/facebook-{username}.zip`
 4. Run `python -m chatbot.tasks.dataset` to preprocess the dataset
+
+So ultimately you should have a directory structure like this:
+
+```
+$DATA_DIR
+└── messenger
+    ├── facebook-{username}.zip
+    ├-- packed
+    │   └── rwkv.bin
+    └── messages
+        └── inbox
+            ├── {conversation_1}
+            │   ├── message_1.json
+            │   ├── message_2.json
+            │   ├── ...
+            │   └── message_n.json
+            ├── {conversation_2}
+            │   ├── message_1.json
+            │   ├── message_2.json
+            │   ├── ...
+            │   └── message_n.json
+            ├── ...
+            └── {conversation_n}
+                ├── message_1.json
+                ├── message_2.json
+                ├── ...
+                └── message_n.json
+```
+
+### Train a model
+
+Launch a training job:
+
+```bash
+runml train configs/rwkv.yaml
+```

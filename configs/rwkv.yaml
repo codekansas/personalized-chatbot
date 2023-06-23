@@ -1,5 +1,5 @@
 model:
-  name: chatbot
+  name: rwkv
 
 task:
   name: chatbot
