@@ -9,6 +9,7 @@ import ml.api as ml
 import torch.nn.functional as F
 from ml.core.state import Phase
 from ml.tasks.base import DataLoaderConfig
+from omegaconf import MISSING
 from torch import Tensor
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.sampler import Sampler
@@ -22,9 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
     tsz: int = ml.conf_field(384, help="The maximum number of tokens in a sequence.")
-    supervise_prompt: bool = ml.conf_field(True, help="If set, supervise the prompt tokens as well.")
-    supervise_other: bool = ml.conf_field(True, help="If set, supervise the other speaker's tokens as well.")
-    key: str = ml.conf_field("rwkv", help="The tokenizer key to use.")
+    key: str = ml.conf_field(MISSING, help="The tokenizer key to use.")
 
 
 # These types are defined here so that they can be used consistently
@@ -44,10 +43,6 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         assert config.key in get_args(TokenizerKey), f"Invalid tokenizer key: {config.key}"
         self.key = cast(TokenizerKey, config.key)
         self._tokenize, self._detokenize, _, self._pad_token = get_tokenizer(cast(TokenizerKey, self.key))
-
-        # Stores the strings for prompting the model.
-        self._supervise_prompt = config.supervise_prompt
-        self._supervise_other = config.supervise_other
 
     def run_model(self, model: Model, batch: Batch, state: ml.State) -> Output:
         return model(batch[:, :-1])

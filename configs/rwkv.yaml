@@ -3,6 +3,7 @@ model:
 
 task:
   name: chatbot
+  key: rwkv
   max_steps: 100_000
   train_dl:
     batch_size: 16
