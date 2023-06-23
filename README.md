@@ -56,3 +56,11 @@ $DATA_DIR
                 ├── ...
                 └── message_n.json
 ```
+
+### Train a model
+
+Launch a training job:
+
+```bash
+runml train configs/rwkv.yaml
+```
