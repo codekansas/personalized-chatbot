@@ -11,12 +11,15 @@ task:
 optimizer:
   name: adamw
   lr: 3e-4
+  weight_decay: 1e-2
 
 lr_scheduler:
   name: linear
 
 trainer:
   name: sl
+  grad_clipping:
+    clip_grad_norm: 1.0
 
 logger:
   - name: stdout
