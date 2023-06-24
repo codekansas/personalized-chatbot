@@ -5,13 +5,15 @@ from typing import Iterator, Sequence
 
 import ml.api as ml
 import torch
-from rwkv.model import pretrained_rwkv
+from pretrained.rwkv import pretrained_rwkv
 from torch import Tensor
 
 
 @dataclass
 class RwkvChatbotModelConfig(ml.BaseModelConfig):
     lora_rank: int = ml.conf_field(4, help="The rank of the LoRA approximation.")
+    lora_dropout: float = ml.conf_field(0.1, help="The dropout rate for the LoRA weights.")
+    lora_top_k_blocks: int = ml.conf_field(5, help="The number of blocks to use in the LoRA approximation.")
 
 
 @ml.register_model("rwkv", RwkvChatbotModelConfig)
@@ -19,7 +21,15 @@ class RwkvChatbotModel(ml.BaseModel[RwkvChatbotModelConfig]):
     def __init__(self, config: RwkvChatbotModelConfig) -> None:
         super().__init__(config)
 
-        self.rwkv = pretrained_rwkv("1.5b", lora_rank=config.lora_rank, wkv_impl="eps")
+        self.rwkv = pretrained_rwkv(
+            "1.5b",
+            lora_rank=config.lora_rank,
+            lora_embeddings=False,
+            lora_dropout=config.lora_dropout,
+            lora_top_k_blocks=config.lora_top_k_blocks,
+            freeze_non_lora=True,
+            wkv_key="eps",
+        )
         self.predictor = self.rwkv.predictor()
 
     def forward(self, tokens: Tensor) -> Tensor:
