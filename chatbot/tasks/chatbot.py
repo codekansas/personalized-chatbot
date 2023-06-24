@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
-    tsz: int = ml.conf_field(384, help="The maximum number of tokens in a sequence.")
+    tsz: int = ml.conf_field(128, help="The maximum number of tokens in a sequence.")
     key: str = ml.conf_field(MISSING, help="The tokenizer key to use.")
 
 

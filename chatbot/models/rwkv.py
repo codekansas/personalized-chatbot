@@ -19,7 +19,7 @@ class RwkvChatbotModel(ml.BaseModel[RwkvChatbotModelConfig]):
     def __init__(self, config: RwkvChatbotModelConfig) -> None:
         super().__init__(config)
 
-        self.rwkv = pretrained_rwkv("430m", lora_rank=config.lora_rank, wkv_impl="log")
+        self.rwkv = pretrained_rwkv("1.5b", lora_rank=config.lora_rank, wkv_impl="eps")
         self.predictor = self.rwkv.predictor()
 
     def forward(self, tokens: Tensor) -> Tensor:
