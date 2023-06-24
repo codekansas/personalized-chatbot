@@ -18,8 +18,14 @@ lr_scheduler:
 
 trainer:
   name: sl
-  grad_clipping:
-    clip_grad_norm: 1.0
+  clip_grad_norm: 1.0
+  batches_per_step_schedule:
+    - num_steps: 1000
+      num_batches: 2
+    - num_steps: 10000
+      num_batches: 4
+    - num_steps: 20000
+      num_batches: 8
 
 logger:
   - name: stdout
