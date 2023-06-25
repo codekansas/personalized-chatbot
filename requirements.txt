@@ -1,7 +1,6 @@
 # requirements.txt
 
 ftfy
-ml-rwkv
 ml-starter
 ml-pretrained
 numpy

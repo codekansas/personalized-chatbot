@@ -11,12 +11,21 @@ task:
 optimizer:
   name: adamw
   lr: 3e-4
+  weight_decay: 1e-2
 
 lr_scheduler:
   name: linear
 
 trainer:
   name: sl
+  clip_grad_norm: 10.0
+  batches_per_step_schedule:
+    - num_steps: 1000
+      num_batches: 2
+    - num_steps: 10000
+      num_batches: 4
+    - num_steps: 20000
+      num_batches: 8
 
 logger:
   - name: stdout

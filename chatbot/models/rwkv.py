@@ -5,7 +5,7 @@ from typing import Iterator, Sequence
 
 import ml.api as ml
 import torch
-from rwkv.model import pretrained_rwkv
+from pretrained.rwkv import pretrained_rwkv
 from torch import Tensor
 
 
@@ -19,7 +19,14 @@ class RwkvChatbotModel(ml.BaseModel[RwkvChatbotModelConfig]):
     def __init__(self, config: RwkvChatbotModelConfig) -> None:
         super().__init__(config)
 
-        self.rwkv = pretrained_rwkv("430m", lora_rank=config.lora_rank, wkv_impl="eps")
+        self.rwkv = pretrained_rwkv(
+            "1.5b",
+            lora_rank=config.lora_rank,
+            lora_embeddings=False,
+            freeze_non_lora=True,
+            use_checkpointing=True,
+            wkv_key="eps",
+        )
         self.predictor = self.rwkv.predictor()
 
     def forward(self, tokens: Tensor) -> Tensor:
