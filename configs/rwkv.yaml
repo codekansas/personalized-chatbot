@@ -18,7 +18,7 @@ lr_scheduler:
 
 trainer:
   name: sl
-  clip_grad_norm: 1.0
+  clip_grad_norm: 10.0
   batches_per_step_schedule:
     - num_steps: 1000
       num_batches: 2

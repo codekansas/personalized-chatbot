@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
-    tsz: int = ml.conf_field(128, help="The maximum number of tokens in a sequence.")
+    tsz: int = ml.conf_field(384, help="The maximum number of tokens in a sequence.")
     key: str = ml.conf_field(MISSING, help="The tokenizer key to use.")
 
 
@@ -49,9 +49,6 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
 
     def compute_loss(self, model: Model, batch: Batch, state: ml.State, output: Output) -> Loss:
         preds, targets = output.transpose(1, 2), batch[:, 1:].long()
-
-        # model.tokens_to_string(preds.argmax(dim=1)[0])
-        # model.tokens_to_string(targets[0])
 
         # Token prediction loss.
         xent_loss = F.cross_entropy(preds, targets, ignore_index=self._pad_token, reduction="none")
