@@ -72,7 +72,7 @@ class ChatbotDataset(Dataset[Tensor]):
         self._pad_token = pad_token
 
         packed_file_path = _packed_file_path(key)
-        self._reader = ml.TokenReader(packed_file_path, None)
+        self._reader = ml.TokenReader(packed_file_path, None, in_memory=True)
 
     @classmethod
     def get_sampler(cls, file_key: str) -> WeightedRandomSampler:
