@@ -2,6 +2,8 @@
 
 Fine-tuning a chatbot on Messenger conversations
 
+This was trained on a single 4090. For other GPUs, use different model sizes or LoRA parameters.
+
 ## Getting Started
 
 ### Framework
