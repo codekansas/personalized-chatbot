@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
-    tsz: int = ml.conf_field(512, help="The maximum number of tokens in a sequence.")
+    tsz: int = ml.conf_field(384, help="The maximum number of tokens in a sequence.")
     key: str = ml.conf_field(MISSING, help="The tokenizer key to use.")
     in_memory_dataset: bool = ml.conf_field(False, help="Whether to load the dataset into memory.")
     prompt_len: int = ml.conf_field(20, help="The number of tokens to use as a prompt.")
@@ -44,6 +44,7 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         # Gets the tokenizr and detokenizer.
         assert config.key in get_args(TokenizerKey), f"Invalid tokenizer key: {config.key}"
         self.key = cast(TokenizerKey, config.key)
+        self.tsz = config.tsz
         self.prompt_len = config.prompt_len
         self._tokenize, self._detokenize, _, self._pad_token = get_tokenizer(cast(TokenizerKey, self.key))
 
@@ -64,7 +65,7 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
 
             def sample_pred() -> str:
                 prompt = model.tokens_to_string(batch[0, : self.prompt_len])
-                return prompt + "".join(list(model.infer(prompt)))
+                return prompt + "".join(list(model.infer(prompt, max_len=self.tsz - self.prompt_len)))
 
             self.logger.log_string("sample", show_gt)
             self.logger.log_string("pred", sample_pred)
