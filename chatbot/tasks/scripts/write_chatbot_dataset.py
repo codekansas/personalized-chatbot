@@ -65,14 +65,15 @@ def write_dataset(
     tokenizer: Callable[[str], list[int]],
     vocab_size: int,
     file_key: TokenizerKey,
-    self_prefix: str = "Me: ",
-    other_prefix: str = "Them: ",
-    sep_str: str = "\n",
-    empty_str: str = "<empty>",
-    seconds_between_convos: int = 60 * 60 * 8,
-    min_convo_length: int = 3,
-    compressed: bool = True,
-    overwrite: bool = False,
+    self_prefix: str | None,
+    other_prefix: str | None,
+    sep_str: str,
+    empty_str: str,
+    min_tokens_per_convo: int,
+    max_tokens_per_convo: int,
+    seconds_between_convos: int,
+    compressed: bool,
+    overwrite: bool,
 ) -> Path:
     """Packs training samples into a single file.
 
@@ -89,12 +90,16 @@ def write_dataset(
         tokenizer: A function that converts a string into a list of tokens.
         vocab_size: The number of possible tokens from the tokenizer.
         file_key: The key to use for the packed file.
-        self_prefix: The prefix to use for messages sent by the user.
+        self_prefix: The prefix to use for messages sent by the user. If None,
+            just use the original person's name.
         other_prefix: The prefix to use for messages sent by the other user.
+            If None, just use the original person's name.
         sep_str: The token to use to separate messages.
         empty_str: The string to use for empty messages.
-        seconds_between_convos: The number of seconds between conversations.
-        min_convo_length: The minimum number of messages in a conversation.
+        min_tokens_per_convo: The minimum number of tokens in a conversation.
+        max_tokens_per_convo: The maximum number of tokens in a conversation.
+        seconds_between_convos: The minimum number of seconds between
+            conversations.
         compressed: Whether to compress the packed file.
         overwrite: Whether to overwrite the packed file if it already exists.
 
@@ -131,20 +136,49 @@ def write_dataset(
     user_name = participant_counts.most_common(1)[0][0]
     logger.info("User name: %s", user_name)
 
+    def get_name(name: str) -> str:
+        if name == user_name:
+            return f"{name}: " if self_prefix is None else self_prefix
+        return f"{name}: " if other_prefix is None else other_prefix
+
+    def get_message(m: dict[str, Any]) -> str:
+        return get_name(m["sender_name"]) + ftfy.fix_text(m.get("content", empty_str))
+
     # Function for separating message histories into conversations.
-    def gen_convos(messages: list[dict[str, Any]]) -> Iterator[list[dict[str, Any]]]:
+    def gen_convos(messages: list[dict[str, Any]]) -> Iterator[list[int]]:
         split_ms = seconds_between_convos * 1000
-        convo: list[dict[str, Any]] = []
-        for message in messages:
-            if "timestamp_ms" not in message:
-                continue
-            if len(convo) > 0 and message["timestamp_ms"] - convo[-1]["timestamp_ms"] > split_ms:
-                if len(convo) > min_convo_length:
-                    yield convo
+        last_ms: int | None = None
+
+        convo: list[str] = []
+        tokens: list[int] = []
+        for m in messages:
+            if "timestamp_ms" not in m:
                 convo = []
-            convo.append(message)
-        if len(convo) > min_convo_length:
-            yield convo
+                tokens = []
+                continue
+
+            # Separate conversations by time.
+            cur_ms = m["timestamp_ms"]
+            if last_ms is not None and cur_ms - last_ms > split_ms:
+                if len(tokens) > min_tokens_per_convo:
+                    yield tokens
+                convo = []
+                tokens = []
+            last_ms = cur_ms
+
+            # Separate conversations by length.
+            m_str = get_message(m)
+            convo.append(m_str)
+            tokens_next = tokenizer(sep_str.join(convo))
+            if len(tokens_next) > max_tokens_per_convo:
+                yield tokens
+                convo = [m_str]
+            else:
+                tokens = tokens_next
+
+        # Yield the last conversation.
+        if len(tokens) > min_tokens_per_convo:
+            yield tokens
 
     # Packs the training samples into a single file.
     with ml.Timer(f"writing packed file to {packed_file_path}"), ml.TokenWriter(
@@ -165,15 +199,8 @@ def write_dataset(
 
             ordered_messages = sorted(messages["messages"], key=lambda m: m["timestamp_ms"])
 
-            for convo in gen_convos(ordered_messages):
-                full_convo = sep_str.join(
-                    (
-                        (self_prefix if m["sender_name"] == user_name else other_prefix)
-                        + ftfy.fix_text(m.get("content", empty_str))
-                    )
-                    for m in convo
-                )
-                writer.write(tokenizer(full_convo))
+            for tokens in gen_convos(ordered_messages):
+                writer.write(tokens)
 
     tmp_packed_file_path.rename(packed_file_path)
 
@@ -190,13 +217,11 @@ def main() -> None:
     parser.add_argument(
         "--self-prefix",
         type=str,
-        default="Me: ",
         help="The prefix to use for messages sent by the user.",
     )
     parser.add_argument(
         "--other-prefix",
         type=str,
-        default="Them: ",
         help="The prefix to use for messages sent by the other user.",
     )
     parser.add_argument(
@@ -212,16 +237,22 @@ def main() -> None:
         help="The string to use for empty messages.",
     )
     parser.add_argument(
+        "--min-tokens-per-convo",
+        type=int,
+        default=128,
+        help="The minimum number of tokens per conversation.",
+    )
+    parser.add_argument(
+        "--max-tokens-per-convo",
+        type=int,
+        default=512,
+        help="The maximum number of tokens per conversation.",
+    )
+    parser.add_argument(
         "--seconds-between-convos",
         type=int,
         default=60 * 60 * 8,
         help="The number of seconds between conversations.",
-    )
-    parser.add_argument(
-        "--min-convo-length",
-        type=int,
-        default=3,
-        help="The minimum number of messages in a conversation.",
     )
     parser.add_argument(
         "--compressed",
@@ -247,8 +278,9 @@ def main() -> None:
         other_prefix=args.other_prefix,
         sep_str=args.sep_str,
         empty_str=args.empty_str,
+        min_tokens_per_convo=args.min_tokens_per_convo,
+        max_tokens_per_convo=args.max_tokens_per_convo,
         seconds_between_convos=args.seconds_between_convos,
-        min_convo_length=args.min_convo_length,
         compressed=args.compressed,
         overwrite=args.overwrite,
     )

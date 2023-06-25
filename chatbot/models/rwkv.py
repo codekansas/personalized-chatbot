@@ -11,7 +11,7 @@ from torch import Tensor
 
 @dataclass
 class RwkvChatbotModelConfig(ml.BaseModelConfig):
-    lora_rank: int = ml.conf_field(4, help="The rank of the LoRA approximation.")
+    lora_rank: int = ml.conf_field(8, help="The rank of the LoRA approximation.")
 
 
 @ml.register_model("rwkv", RwkvChatbotModelConfig)
