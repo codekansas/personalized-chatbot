@@ -65,8 +65,8 @@ def write_dataset(
     tokenizer: Callable[[str], list[int]],
     vocab_size: int,
     file_key: TokenizerKey,
-    self_prefix: str = "Me: ",
-    other_prefix: str = "Them: ",
+    self_prefix: str | None = "Me: ",
+    other_prefix: str | None = "Them: ",
     sep_str: str = "\n",
     empty_str: str = "<empty>",
     seconds_between_convos: int = 60 * 60 * 8,
@@ -89,8 +89,10 @@ def write_dataset(
         tokenizer: A function that converts a string into a list of tokens.
         vocab_size: The number of possible tokens from the tokenizer.
         file_key: The key to use for the packed file.
-        self_prefix: The prefix to use for messages sent by the user.
+        self_prefix: The prefix to use for messages sent by the user. If None,
+            just use the original person's name.
         other_prefix: The prefix to use for messages sent by the other user.
+            If None, just use the original person's name.
         sep_str: The token to use to separate messages.
         empty_str: The string to use for empty messages.
         seconds_between_convos: The number of seconds between conversations.
@@ -146,6 +148,11 @@ def write_dataset(
         if len(convo) > min_convo_length:
             yield convo
 
+    def get_name(name: str) -> str:
+        if name == user_name:
+            return f"{name}: " if self_prefix is None else self_prefix
+        return f"{name}: " if other_prefix is None else other_prefix
+
     # Packs the training samples into a single file.
     with ml.Timer(f"writing packed file to {packed_file_path}"), ml.TokenWriter(
         (tmp_packed_file_path := packed_file_path.parent / f"{file_key}.bin.tmp"),
@@ -166,13 +173,8 @@ def write_dataset(
             ordered_messages = sorted(messages["messages"], key=lambda m: m["timestamp_ms"])
 
             for convo in gen_convos(ordered_messages):
-                full_convo = sep_str.join(
-                    (
-                        (self_prefix if m["sender_name"] == user_name else other_prefix)
-                        + ftfy.fix_text(m.get("content", empty_str))
-                    )
-                    for m in convo
-                )
+                itr = (get_name(m["sender_name"]) + ftfy.fix_text(m.get("content", empty_str)) for m in convo)
+                full_convo = sep_str.join(itr)
                 writer.write(tokenizer(full_convo))
 
     tmp_packed_file_path.rename(packed_file_path)
@@ -190,13 +192,11 @@ def main() -> None:
     parser.add_argument(
         "--self-prefix",
         type=str,
-        default="Me: ",
         help="The prefix to use for messages sent by the user.",
     )
     parser.add_argument(
         "--other-prefix",
         type=str,
-        default="Them: ",
         help="The prefix to use for messages sent by the other user.",
     )
     parser.add_argument(

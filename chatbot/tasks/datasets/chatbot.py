@@ -63,16 +63,32 @@ class ChatbotDataset(Dataset[Tensor]):
     which tokens are from the user, where 0 indicates a prompt token, 1
     indicates the user's tokens, 2 indicates another person's tokens, and 3
     indicates padding.
+
+    Parameters:
+        key: The tokenizer key.
+        tsz: The maximum number of tokens in a sample.
+        pad_token: The padding token.
+        in_memory: Whether to load the full dataset into memory.
+        from_start: Whether to sample from the start of the conversation or
+            from a random point in the conversation.
     """
 
-    def __init__(self, key: str, tsz: int, pad_token: int) -> None:
+    def __init__(
+        self,
+        key: str,
+        tsz: int,
+        pad_token: int,
+        in_memory: bool = False,
+        from_start: bool = True,
+    ) -> None:
         super().__init__()
 
         self._tsz = tsz
         self._pad_token = pad_token
+        self._from_start = from_start
 
         packed_file_path = _packed_file_path(key)
-        self._reader = ml.TokenReader(packed_file_path, None, in_memory=True)
+        self._reader = ml.TokenReader(packed_file_path, None, in_memory=in_memory)
 
     @classmethod
     def get_sampler(cls, file_key: str) -> WeightedRandomSampler:
@@ -82,7 +98,7 @@ class ChatbotDataset(Dataset[Tensor]):
 
     def __getitem__(self, index: int) -> Tensor:
         length = self._reader.length(index)
-        start = random.randint(0, max(length - self._tsz, 0))
+        start = 0 if self._from_start else random.randint(0, max(length - self._tsz, 0))
         end = min(start + self._tsz, length)
         tokens = self._reader[index, start:end] + [self._pad_token] * (self._tsz - (end - start))
         return torch.tensor(tokens)

@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 class ChatbotTaskConfig(ml.SupervisedLearningTaskConfig):
     tsz: int = ml.conf_field(512, help="The maximum number of tokens in a sequence.")
     key: str = ml.conf_field(MISSING, help="The tokenizer key to use.")
+    in_memory_dataset: bool = ml.conf_field(False, help="Whether to load the dataset into memory.")
+    prompt_len: int = ml.conf_field(20, help="The number of tokens to use as a prompt.")
 
 
 # These types are defined here so that they can be used consistently
@@ -42,6 +44,7 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         # Gets the tokenizr and detokenizer.
         assert config.key in get_args(TokenizerKey), f"Invalid tokenizer key: {config.key}"
         self.key = cast(TokenizerKey, config.key)
+        self.prompt_len = config.prompt_len
         self._tokenize, self._detokenize, _, self._pad_token = get_tokenizer(cast(TokenizerKey, self.key))
 
     def run_model(self, model: Model, batch: Batch, state: ml.State) -> Output:
@@ -60,7 +63,7 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
                 return model.tokens_to_string(batch[0])
 
             def sample_pred() -> str:
-                prompt = "Them: Hey, it's been a while.\nThem: How are you doing?\nMe:"
+                prompt = model.tokens_to_string(batch[0, : self.prompt_len])
                 return prompt + "".join(list(model.infer(prompt)))
 
             self.logger.log_string("sample", show_gt)
@@ -71,7 +74,7 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
         }
 
     def get_dataset(self, phase: ml.Phase) -> ChatbotDataset:
-        return ChatbotDataset(self.key, self.config.tsz, self._pad_token)
+        return ChatbotDataset(self.key, self.config.tsz, self._pad_token, self.config.in_memory_dataset)
 
     def get_sampler(self, dataset: Dataset, cfg: DataLoaderConfig, phase: Phase) -> Sampler[int]:
         return ChatbotDataset.get_sampler(self.key)
@@ -80,7 +83,7 @@ class ChatbotTask(ml.SupervisedLearningTask[ChatbotTaskConfig, Model, Batch, Out
 def test_task_adhoc() -> None:
     ml.configure_logging()
 
-    config = ChatbotTaskConfig()
+    config = ChatbotTaskConfig(key="rwkv")
     config.train_dl.batch_size = 2
     config.train_dl.num_workers = 0
     task = ChatbotTask(config)
