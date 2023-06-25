@@ -12,7 +12,6 @@ from torch import Tensor
 @dataclass
 class RwkvChatbotModelConfig(ml.BaseModelConfig):
     lora_rank: int = ml.conf_field(4, help="The rank of the LoRA approximation.")
-    lora_top_k_blocks: int = ml.conf_field(5, help="The number of blocks to use in the LoRA approximation.")
 
 
 @ml.register_model("rwkv", RwkvChatbotModelConfig)
@@ -24,8 +23,8 @@ class RwkvChatbotModel(ml.BaseModel[RwkvChatbotModelConfig]):
             "1.5b",
             lora_rank=config.lora_rank,
             lora_embeddings=False,
-            lora_top_k_blocks=config.lora_top_k_blocks,
             freeze_non_lora=True,
+            use_checkpointing=True,
             wkv_key="eps",
         )
         self.predictor = self.rwkv.predictor()
