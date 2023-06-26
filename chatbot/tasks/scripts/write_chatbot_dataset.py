@@ -7,6 +7,7 @@ that can be used with the chatbot model.
 import argparse
 import json
 import logging
+import re
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -67,7 +68,6 @@ def write_dataset(
     file_key: TokenizerKey,
     self_prefix: str | None,
     other_prefix: str | None,
-    sep_str: str,
     empty_str: str,
     min_tokens_per_convo: int,
     max_tokens_per_convo: int,
@@ -94,7 +94,6 @@ def write_dataset(
             just use the original person's name.
         other_prefix: The prefix to use for messages sent by the other user.
             If None, just use the original person's name.
-        sep_str: The token to use to separate messages.
         empty_str: The string to use for empty messages.
         min_tokens_per_convo: The minimum number of tokens in a conversation.
         max_tokens_per_convo: The maximum number of tokens in a conversation.
@@ -138,11 +137,11 @@ def write_dataset(
 
     def get_name(name: str) -> str:
         if name == user_name:
-            return f"{name}: " if self_prefix is None else self_prefix
-        return f"{name}: " if other_prefix is None else other_prefix
+            return f"- {name}: " if self_prefix is None else self_prefix
+        return f"- {name}: " if other_prefix is None else other_prefix
 
     def get_message(m: dict[str, Any]) -> str:
-        return get_name(m["sender_name"]) + ftfy.fix_text(m.get("content", empty_str))
+        return get_name(m["sender_name"]) + re.sub(r"\s+", " ", ftfy.fix_text(m.get("content", empty_str))).strip()
 
     # Function for separating message histories into conversations.
     def gen_convos(messages: list[dict[str, Any]]) -> Iterator[list[int]]:
@@ -169,7 +168,7 @@ def write_dataset(
             # Separate conversations by length.
             m_str = get_message(m)
             convo.append(m_str)
-            tokens_next = tokenizer(sep_str.join(convo))
+            tokens_next = tokenizer("\n".join(convo))
             if len(tokens_next) > max_tokens_per_convo:
                 yield tokens
                 convo = [m_str]
@@ -181,6 +180,7 @@ def write_dataset(
             yield tokens
 
     # Packs the training samples into a single file.
+    total_convos = 0
     with ml.Timer(f"writing packed file to {packed_file_path}"), ml.TokenWriter(
         (tmp_packed_file_path := packed_file_path.parent / f"{file_key}.bin.tmp"),
         num_tokens=vocab_size,
@@ -201,8 +201,11 @@ def write_dataset(
 
             for tokens in gen_convos(ordered_messages):
                 writer.write(tokens)
+                total_convos += 1
 
     tmp_packed_file_path.rename(packed_file_path)
+
+    logger.info("Total conversations: %d", total_convos)
 
     return packed_file_path
 
@@ -223,12 +226,6 @@ def main() -> None:
         "--other-prefix",
         type=str,
         help="The prefix to use for messages sent by the other user.",
-    )
-    parser.add_argument(
-        "--sep-str",
-        type=str,
-        default="\n",
-        help="The token to use to separate messages.",
     )
     parser.add_argument(
         "--empty-str",
@@ -276,7 +273,6 @@ def main() -> None:
         file_key=args.mode,
         self_prefix=args.self_prefix,
         other_prefix=args.other_prefix,
-        sep_str=args.sep_str,
         empty_str=args.empty_str,
         min_tokens_per_convo=args.min_tokens_per_convo,
         max_tokens_per_convo=args.max_tokens_per_convo,
